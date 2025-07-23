@@ -3,32 +3,24 @@
 
 import OSLog
 
-public enum Configuration: String {
+public enum Configuration: String, Sendable {
     case domain
     case subsystem
     case category
 }
 
-final class GVLogs {
-    public var shared: GVLogs = GVLogs()
+final public class GVLogs: Sendable {
+    private let configuration: [Configuration: String]
+    private let logger: Logger
     
-    fileprivate let configuration: [Configuration: Any]?
-    private var subsystem: String {
-        configuration?[.subsystem] as? String ?? Bundle.main.bundleIdentifier!
-    }
-    private var category: String {
-        configuration?[.category] as? String ?? "Logs"
-    }
-    
-    private lazy var logger: Logger = {
-        Logger(subsystem: subsystem, category: category)
-    }()
-    
-    init(configuration: [Configuration: Any]? = nil) {
+    public init(configuration: [Configuration: String]) {
         self.configuration = configuration
+        let subsystem = configuration[.subsystem] ?? Bundle.main.bundleIdentifier!
+        let category = configuration[.category] ?? "Logs"
+        self.logger = Logger(subsystem: subsystem, category: category)
     }
     
     public func log(event: String) {
-        logger.debug("\(event)")
+        logger.debug("GVLogs: \(event)")
     }
 }
