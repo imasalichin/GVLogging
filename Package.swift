@@ -14,11 +14,15 @@ let package = Package(
             name: "GVLogs",
             targets: ["GVLogs"]),
     ],
+    dependencies: [
+        .package(url: "https://github.com/realm/realm-swift.git", .upToNextMajor(from: "20.0.3"))
+    ],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
         // Targets can depend on other targets in this package and products from dependencies.
         .target(
-            name: "GVLogs"),
+            name: "GVLogs",
+            dependencies: [.product(name: "RealmSwift", package: "realm-swift")]),
         .testTarget(
             name: "GVLogsTests",
             dependencies: ["GVLogs"]
