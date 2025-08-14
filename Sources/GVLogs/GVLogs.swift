@@ -10,98 +10,8 @@ import OSLog
 import RealmSwift
 import UIKit
 
-public enum GVLoggerField: String {
-    case logID = "log_id"
-    case createdAt = "created_at"
-    case eventName = "event_name"
-    case logLevel = "log_level"
-    case correlationID = "correlation_id"
-    case properties
-    
-    case userID = "user_id"
-    case userName = "user_name"
-    case userEmail = "user_email"
-    
-    case model
-    case osVersion = "os_version"
-    case operatingSystem
-    case appVersion = "app_version"
-    case latitude
-    case longitude
-    case timeZone
-    case deviceID = "device_id"
-    
-    case userInfo = "user_info"
-    case deviceInfo = "device_info"
-}
-
-public enum GVLogLevel: String, CaseIterable, Sendable {
-    case `default`
-    case info
-    case debug
-    case error
-    case fault
-}
-
-public class GVUserInfoObject: Object, Encodable  {
-    @Persisted var name: String
-    @Persisted var userID: String
-    @Persisted var email: String
-    
-    enum CodingKeys: String, CodingKey {
-        case userID = "id"
-        case name = "name"
-        case email = "email"
-    }
-}
-
-public class GVDeviceInfoObject: Object, Encodable  {
-    @Persisted var operatingSystem: String
-    @Persisted var model: String
-    @Persisted var deviceID: String
-    @Persisted var timeZone: String
-    @Persisted var latitude: String
-    @Persisted var longitude: String
-    @Persisted var osVersion: String
-    @Persisted var appVersion: String
-    
-    enum CodingKeys: String, CodingKey {
-        case model
-        case osVersion = "os_version"
-        case operatingSystem = "os"
-        case appVersion = "app_version"
-        case latitude
-        case longitude
-        case timeZone = "time_zone"
-        case deviceID = "device_id"
-    }
-}
-
-public class GVLogObject: Object, Encodable {
-    @Persisted(primaryKey: true) var logID: String
-    @Persisted var createdAt: String
-    @Persisted var eventName: String
-    @Persisted var logLevel: String
-    @Persisted var correlationID: String
-    @Persisted var userInfo: GVUserInfoObject?
-    @Persisted var deviceInfo: GVDeviceInfoObject?
-    @Persisted var properties: Map<String, String>
-    @Persisted public var asJSON: String
-    
-    enum CodingKeys: String, CodingKey {
-        case logID = "log_id"
-        case createdAt = "created_at"
-        case eventName = "event_name"
-        case userInfo = "user_info"
-        case deviceInfo = "device_info"
-        case logLevel = "log_level"
-        case correlationID = "correlation_id"
-        case properties
-    }
-}
-
 final public class GVLogger: @unchecked Sendable {
-    private let configuration: [String: String]
+    private let configuration: GVLogsConfig
     private var subsystem: String {
         Bundle.main.bundleIdentifier ?? "GVLogger"
     }
@@ -126,7 +36,7 @@ final public class GVLogger: @unchecked Sendable {
         return try! Realm(configuration: config, queue: persistenceQueue)
     }()
     
-    public init(configuration: [String: String]) {
+    public init(configuration: GVLogsConfig) {
         self.configuration = configuration
         Task {
             await fillDeviceFields()
@@ -154,7 +64,6 @@ final public class GVLogger: @unchecked Sendable {
                 logger.log("\(logMessage)")
             }
         })
-
     }
     
     public func setUser(id: String, name: String, email: String?) {
@@ -179,21 +88,12 @@ final public class GVLogger: @unchecked Sendable {
             dataFields[.longitude] = nil
         }
     }
-    
-    private func fillDeviceFields() async {
-        Task {
-            dataFields[.model] = await UIDevice.current.model
-            dataFields[.osVersion] = await UIDevice.current.systemVersion
-            dataFields[.operatingSystem] = await UIDevice.current.systemName
-            let versionNumber: String = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
-            let buildNumber: String = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? ""
-            dataFields[.appVersion] = versionNumber + "." + buildNumber
+
+    public func fetch(completion: @Sendable @escaping ([GVLogObject]) -> Void) {
+        persistenceQueue.async { [weak self] in
+            let results: [GVLogObject] = self?.realm.objects(GVLogObject.self).compactMap { $0 } ?? []
+            completion(results)
         }
-    }
-    
-    private func fillTimeFields() {
-        dataFields[.createdAt] = Date().description
-        dataFields[.timeZone] = TimeZone.current.identifier
     }
 }
 
@@ -243,11 +143,20 @@ extension GVLogger {
         }
     }
     
-    public func fetch(completion: @Sendable @escaping ([GVLogObject]) -> Void) {
-        persistenceQueue.async { [weak self] in
-            let results: [GVLogObject] = self?.realm.objects(GVLogObject.self).compactMap { $0 } ?? []
-            completion(results)
+    private func fillDeviceFields() async {
+        Task {
+            dataFields[.model] = await UIDevice.current.model
+            dataFields[.osVersion] = await UIDevice.current.systemVersion
+            dataFields[.operatingSystem] = await UIDevice.current.systemName
+            let versionNumber: String = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
+            let buildNumber: String = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? ""
+            dataFields[.appVersion] = versionNumber + "." + buildNumber
         }
+    }
+    
+    private func fillTimeFields() {
+        dataFields[.createdAt] = Date().description
+        dataFields[.timeZone] = TimeZone.current.identifier
     }
     
     private func encode(log: GVLogObject) -> String {
