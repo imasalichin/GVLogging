@@ -24,15 +24,7 @@ final public class GVLogger: @unchecked Sendable {
     private var dataFields: [GVLoggerField: String] = [:]
     private var persistenceQueue = DispatchQueue(label: "GVLogger")
     private lazy var realm: Realm = {
-        var config = Realm.Configuration(
-            schemaVersion: 1,
-            migrationBlock: { migration, oldSchemaVersion in
-                if oldSchemaVersion < 1 {
-                    migration.enumerateObjects(ofType: "GVLogObject") { oldObject, _ in
-                        migration.delete(oldObject!)
-                    }
-                }
-            })
+        var config = Realm.Configuration(deleteRealmIfMigrationNeeded: true)
         return try! Realm(configuration: config, queue: persistenceQueue)
     }()
     
@@ -43,14 +35,14 @@ final public class GVLogger: @unchecked Sendable {
         }
     }
     
-    public func log(event: String, properties: [String: Any]?, level: GVLogLevel) {
+    public func log(event: String, properties: [String: Any]?, level: GVLogLevel, completion: (@Sendable (String) -> Void)? = nil) {
         fillTimeFields()
         save(event: event, properties: stringifyDict(properties: properties), level: level, completion: { [weak self] log in
             guard let log, let self else {
                 self?.logger.fault("\(event) failed to save")
                 return
             }
-            let logMessage = "/n/nGVLogger: \(log.asJSON)/n/n"
+            let logMessage = "GVLogger: \(log.asJSON)"
             switch level {
             case .info:
                 logger.info("\(logMessage)")
@@ -63,6 +55,7 @@ final public class GVLogger: @unchecked Sendable {
             default:
                 logger.log("\(logMessage)")
             }
+            completion?(logMessage)
         })
     }
     
@@ -88,10 +81,14 @@ final public class GVLogger: @unchecked Sendable {
             dataFields[.longitude] = nil
         }
     }
-
-    public func fetch(completion: @Sendable @escaping ([GVLogObject]) -> Void) {
+    
+    public func fetch(completion: @Sendable @escaping ([[GVLogObject]]) -> Void) {
         persistenceQueue.async { [weak self] in
-            let results: [GVLogObject] = self?.realm.objects(GVLogObject.self).compactMap { $0 } ?? []
+            guard let self else {
+                completion([])
+                return
+            }
+            let results = filter(logs: realm.objects(GVLogObject.self))
             completion(results)
         }
     }
@@ -121,7 +118,7 @@ extension GVLogger {
             
             let logObject = GVLogObject()
             logObject.logID = logID
-            logObject.createdAt = dataFields[.createdAt] ?? "nil"
+            logObject.createdAt = dataFields[.createdAt]?.asDate() ?? Date()
             logObject.eventName = event
             logObject.logLevel = level.rawValue
             logObject.correlationID = logID
@@ -130,7 +127,7 @@ extension GVLogger {
             properties?.forEach({ key, value in
                 logObject.properties[key] = value
             })
-            logObject.asJSON = encode(log: logObject)
+            logObject.asJSON = logObject.encode()
             
             do {
                 try self.realm.write {
@@ -141,6 +138,39 @@ extension GVLogger {
             }
             completion(logObject)
         }
+    }
+    
+    private func filter(logs: Results<GVLogObject>) -> [[GVLogObject]] {
+        var predicates: [String] = []
+        var arguments: [Any] = []
+        let createdAtField = String(describing: GVLoggerField.createdAt)
+        if let logsAfter = configuration.logsAfter {
+            predicates.append("\(createdAtField) >= %@")
+            arguments.append(logsAfter)
+        }
+        if let logsBefore = configuration.logsBefore {
+            predicates.append("\(createdAtField) <= %@")
+            arguments.append(logsBefore)
+        }
+        
+        let filtersArray = configuration.filters
+        filtersArray.forEach({ filterDict in
+            filterDict.values.forEach({ filterValues in
+                if let filterKey = filterDict.keys.first, let filterField = GVLoggerField(rawValue: filterKey) {
+                    predicates.append("\(filterField) IN %@")
+                    arguments.append(filterValues)
+                }
+            })
+        })
+        
+        let predicateList = predicates.joined(separator: " AND ")
+        let predicate = NSPredicate(format: predicateList, argumentArray: arguments)
+        print("\nREALM FILTER PREDICATE: \(predicate)\n")
+        
+        let sortedResults = logs.sorted(byKeyPath: createdAtField, ascending: false)
+        let results = sortedResults.filter(predicate).compactMap { $0 } ?? []
+        let limitResults = Array(results.prefix(configuration.eventsCount))
+        return limitResults.chunked(into: configuration.pageSize)
     }
     
     private func fillDeviceFields() async {
@@ -157,14 +187,6 @@ extension GVLogger {
     private func fillTimeFields() {
         dataFields[.createdAt] = Date().description
         dataFields[.timeZone] = TimeZone.current.identifier
-    }
-    
-    private func encode(log: GVLogObject) -> String {
-        do {
-            let jsonData = try JSONEncoder().encode(log)
-            let jsonString = String(data: jsonData, encoding: .utf8)!
-            return jsonString
-        } catch { return error.localizedDescription }
     }
     
     private func stringifyDict(properties: [String: Any]?) -> [String: String] {
@@ -185,4 +207,3 @@ extension GVLogger {
         return Dictionary(uniqueKeysWithValues: stringKeys ?? [("", "")])
     }
 }
-

@@ -21,6 +21,16 @@ extension String {
     }
 }
 
+extension Date {
+    func asServerString() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM dd yyyy' @ 'hh:mm a z"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone.ReferenceType.local
+        return formatter.string(from: self)
+    }
+}
+
 extension ISO8601DateFormatter {
     static func formatterWithFractionalSeconds() -> ISO8601DateFormatter {
         let isoDateFormatter = ISO8601DateFormatter()
@@ -34,5 +44,14 @@ extension ISO8601DateFormatter {
         formatter.formatOptions.insert(.withFractionalSeconds)
         formatter.timeZone = TimeZone.current
         return formatter
+    }
+}
+
+extension Array {
+    func chunked(into size: Int) -> [[Element]] {
+        guard size > 0 else { return [self] }
+        return stride(from: 0, to: count, by: size).map {
+            Array(self[$0 ..< Swift.min($0 + size, count)])
+        }
     }
 }

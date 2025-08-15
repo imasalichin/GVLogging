@@ -22,7 +22,7 @@ public enum GVLoggerField: String {
     
     case model
     case osVersion = "os_version"
-    case operatingSystem
+    case operatingSystem = "os"
     case appVersion = "app_version"
     case latitude
     case longitude
@@ -107,7 +107,7 @@ public class GVDeviceInfoObject: Object, Encodable  {
 
 public class GVLogObject: Object, Encodable {
     @Persisted(primaryKey: true) var logID: String
-    @Persisted var createdAt: String
+    @Persisted var createdAt: Date
     @Persisted var eventName: String
     @Persisted var logLevel: String
     @Persisted var correlationID: String
@@ -125,5 +125,26 @@ public class GVLogObject: Object, Encodable {
         case logLevel = "log_level"
         case correlationID = "correlation_id"
         case properties
+    }
+    
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(logID, forKey: .logID)
+        try container.encode(eventName, forKey: .eventName)
+        try container.encode(userInfo, forKey: .userInfo)
+        try container.encode(deviceInfo, forKey: .deviceInfo)
+        try container.encode(logLevel, forKey: .logLevel)
+        try container.encode(correlationID, forKey: .correlationID)
+        try container.encode(properties, forKey: .properties)
+        let date = createdAt.asServerString()
+        try container.encode(date, forKey: .createdAt)
+    }
+    
+    func encode() -> String {
+        do {
+            let jsonData = try JSONEncoder().encode(self)
+            let jsonString = String(data: jsonData, encoding: .utf8)!
+            return jsonString
+        } catch { return error.localizedDescription }
     }
 }
